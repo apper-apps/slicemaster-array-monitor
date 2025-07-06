@@ -10,6 +10,7 @@ import ImageCanvas from "@/components/organisms/ImageCanvas";
 import Button from "@/components/atoms/Button";
 import Card from "@/components/atoms/Card";
 import Empty from "@/components/ui/Empty";
+import Error from "@/components/ui/Error";
 import Loading from "@/components/ui/Loading";
 import ControlBar from "@/components/molecules/ControlBar";
 import FileUpload from "@/components/molecules/FileUpload";
@@ -67,173 +68,279 @@ const handleReupload = () => {
       }
     }
   }
-  
-const createSliceImage = async (slice, uploadedFile) => {
-    return new Promise((resolve) => {
-      const outputFormat = slice.outputFormat || 'original'
-      const isGifOutput = outputFormat === 'gif' || (outputFormat === 'original' && uploadedFile.isGif)
-      
-      if (isGifOutput && gifFrames && gifFrames.length > 0) {
-        // Create animated GIF slice with proper encoding
-        createAnimatedGifSlice(slice, uploadedFile, gifFrames).then(resolve).catch(error => {
-          console.error('GIF slicing failed, falling back to static:', error)
-          createStaticSlice(slice, uploadedFile, 'gif').then(resolve)
-        })
-      } else {
-        // Create static image slice
-        createStaticSlice(slice, uploadedFile, outputFormat).then(resolve)
+// Function to create slice image based on format with enhanced error handling
+  async function createSliceImage(slice, uploadedFile) {
+    const outputFormat = slice.outputFormat || 'original'
+    const isGifOutput = outputFormat === 'gif'
+    
+    // Validate slice dimensions
+    if (slice.width <= 0 || slice.height <= 0) {
+      throw new Error('Invalid slice dimensions')
+    }
+    
+    if (slice.x < 0 || slice.y < 0 || 
+        slice.x + slice.width > uploadedFile.width || 
+        slice.y + slice.height > uploadedFile.height) {
+      throw new Error('Slice extends beyond image boundaries')
+    }
+    
+    // For GIF output or if original file is GIF, try to create animated version
+if (isGifOutput || uploadedFile.type === 'image/gif') {
+      try {
+        if (!gifFrames || !gifFrames.length) {
+          throw new Error('GIF data not available')
+        }
+        
+        // Check if GIF is too complex for processing
+        if (frames.length > 500) {
+          throw new Error('GIF has too many frames for processing')
+        }
+        
+        const totalPixels = slice.width * slice.height * frames.length
+        if (totalPixels > 100000000) { // 100M pixels limit
+          throw new Error('GIF slice is too large for processing')
+        }
+        
+return await createAnimatedGifSlice(slice, uploadedFile, gifFrames)
+      } catch (error) {
+        console.warn('GIF slicing failed, falling back to static:', error)
+        
+        // Provide specific fallback messages
+        let fallbackMessage = 'GIF slicing failed, falling back to static format'
+        if (error.message.includes('timeout')) {
+          fallbackMessage = 'GIF processing timed out, using static format'
+        } else if (error.message.includes('memory') || error.message.includes('large')) {
+          fallbackMessage = 'GIF too large for animation, using static format'
+        } else if (error.message.includes('frames')) {
+          fallbackMessage = 'GIF too complex for animation, using static format'
+        }
+        
+        toast.warning(fallbackMessage, { autoClose: 4000 })
+        
+        // Fall back to static image with appropriate format
+        const fallbackFormat = outputFormat === 'gif' ? 'png' : outputFormat
+        return await createStaticSlice(slice, uploadedFile, fallbackFormat)
       }
-    })
+    }
+    
+    // For static formats
+    return await createStaticSlice(slice, uploadedFile, outputFormat)
   }
-
-  const createStaticSlice = async (slice, uploadedFile, outputFormat) => {
-    return new Promise((resolve) => {
+  
+// Helper function to create static slice with error handling
+  async function createStaticSlice(slice, uploadedFile, outputFormat) {
+    return new Promise((resolve, reject) => {
       const canvas = document.createElement('canvas')
       const ctx = canvas.getContext('2d')
+      
+      // Validate context creation
+      if (!ctx) {
+        reject(new Error('Failed to create canvas context'))
+        return
+      }
       
       canvas.width = slice.width
       canvas.height = slice.height
       
       const img = new Image()
       img.onload = () => {
-        // Draw the sliced portion
-        ctx.drawImage(
-          img,
-          slice.x, slice.y, slice.width, slice.height, // source rectangle
-          0, 0, slice.width, slice.height // destination rectangle
-        )
-        
-        // Determine output format and MIME type
-        let mimeType = uploadedFile.type
-        let extension = uploadedFile.type.split('/')[1]
-        
-        if (outputFormat === 'png') {
-          mimeType = 'image/png'
-          extension = 'png'
-        } else if (outputFormat === 'jpg') {
-          mimeType = 'image/jpeg'
-          extension = 'jpg'
-        } else if (outputFormat === 'gif') {
-          mimeType = 'image/gif'
-          extension = 'gif'
+        try {
+          ctx.drawImage(
+            img,
+            slice.x, slice.y, slice.width, slice.height, // source rectangle
+            0, 0, slice.width, slice.height // destination rectangle
+          )
+          
+          // Determine output format and MIME type
+          let mimeType = uploadedFile.type
+          let extension = uploadedFile.type.split('/')[1]
+          
+          if (outputFormat === 'png') {
+            mimeType = 'image/png'
+            extension = 'png'
+          } else if (outputFormat === 'jpg') {
+            mimeType = 'image/jpeg'
+            extension = 'jpg'
+          } else if (outputFormat === 'gif') {
+            mimeType = 'image/gif'
+            extension = 'gif'
+          }
+          
+          canvas.toBlob((blob) => {
+            if (!blob) {
+              reject(new Error('Failed to create blob'))
+              return
+            }
+            const url = URL.createObjectURL(blob)
+            resolve({
+              id: slice.id,
+              name: `slice-${slice.order}.${extension}`,
+              blob: blob,
+              url: url,
+              width: slice.width,
+              height: slice.height,
+              outputFormat: outputFormat
+            })
+          }, mimeType, 0.95)
+        } catch (error) {
+          reject(new Error(`Failed to process image: ${error.message}`))
         }
-        
-        canvas.toBlob((blob) => {
-          const url = URL.createObjectURL(blob)
-          resolve({
-            id: slice.id,
-            name: `slice-${slice.order}.${extension}`,
-            blob: blob,
-            url: url,
-            width: slice.width,
-            height: slice.height,
-            outputFormat: outputFormat
-          })
-        }, mimeType, 0.95)
+      }
+      
+      img.onerror = () => {
+        reject(new Error('Failed to load image'))
       }
       
       img.src = uploadedFile.url
     })
   }
 
-const createAnimatedGifSlice = async (slice, uploadedFile, frames) => {
-    return new Promise(async (resolve, reject) => {
-      // Declare processingToast variable to prevent scoping issues
-      let processingToast
-      
-      // Set up timeout to prevent hanging
-      const timeout = setTimeout(() => {
-        toast.dismiss(processingToast)
-        toast.error('GIF processing timed out. Falling back to static image.')
-        reject(new Error('GIF processing timeout'))
-      }, 30000) // 30 second timeout
+// Helper function to create animated GIF slice with enhanced error handling
+  async function createAnimatedGifSlice(slice, uploadedFile, frames) {
+    return new Promise((resolve, reject) => {
+      let abortController = new AbortController()
+      let progressiveTimeout = null
+      let gifEncoder = null
+      let processingStartTime = Date.now()
       
       try {
-        // Show processing indication
-        processingToast = toast.info('Processing animated GIF slice...', { 
-          autoClose: false,
-          hideProgressBar: false 
-        })
-        // Create a full canvas to reconstruct the GIF
+        // Check if frames are too numerous for processing
+        const maxFrames = 200
+        const processedFrames = frames.length > maxFrames ? 
+          frames.filter((_, index) => index % Math.ceil(frames.length / maxFrames) === 0) : 
+          frames
+        
+        if (processedFrames.length !== frames.length) {
+          console.warn(`Reduced frames from ${frames.length} to ${processedFrames.length} for performance`)
+        }
+        
         const fullCanvas = document.createElement('canvas')
         const fullCtx = fullCanvas.getContext('2d')
+        
+        // Set canvas size to original image dimensions
         fullCanvas.width = uploadedFile.width
         fullCanvas.height = uploadedFile.height
         
-        // Create GIF encoder with optimized settings for better performance
-        const gif = new GIF({
-          workers: 1, // Reduced workers to prevent resource contention
-          quality: 20, // Increased quality value for faster encoding (1-30, higher = faster)
+        // Create GIF encoder with progressive timeout strategy
+        gifEncoder = new GIF({
+          workers: Math.min(2, navigator.hardwareConcurrency || 1),
+          quality: Math.min(30, Math.max(10, Math.round(slice.width * slice.height / 10000))), // Dynamic quality based on size
           width: slice.width,
           height: slice.height,
-          repeat: 0, // 0 = infinite loop
+          repeat: 0,
           transparent: null,
-          workerScript: '/gif.worker.js'
+          workerScript: '/gif.worker.js',
+          debug: false // Disable debug for performance
         })
         
-        // Process frames to create complete images
-        let previousImageData = null
+        // Set up progressive timeout (start with 15s, extend based on complexity)
+        const baseTimeout = 15000
+        const complexityFactor = Math.min(3, processedFrames.length / 50)
+        const finalTimeout = baseTimeout * (1 + complexityFactor)
         
-        for (let i = 0; i < frames.length; i++) {
-          const frame = frames[i]
-          
-          // Clear canvas with transparent background
-          fullCtx.clearRect(0, 0, fullCanvas.width, fullCanvas.height)
-          
-          // Handle disposal method
-          if (frame.disposalType === 2) {
-            // Restore to background - clear the frame area
-            fullCtx.clearRect(frame.dims.left, frame.dims.top, frame.dims.width, frame.dims.height)
-          } else if (frame.disposalType === 3 && previousImageData) {
-            // Restore to previous - restore the previous frame
-            fullCtx.putImageData(previousImageData, 0, 0)
+        progressiveTimeout = setTimeout(() => {
+          cleanup()
+          reject(new Error(`GIF processing timeout after ${Math.round(finalTimeout/1000)}s`))
+        }, finalTimeout)
+        
+        // Cleanup function
+        const cleanup = () => {
+          if (progressiveTimeout) {
+            clearTimeout(progressiveTimeout)
+            progressiveTimeout = null
           }
-          
-          // Save current state before drawing new frame
-          if (frame.disposalType === 3) {
-            previousImageData = fullCtx.getImageData(0, 0, fullCanvas.width, fullCanvas.height)
+          if (gifEncoder) {
+            try {
+              gifEncoder.abort()
+            } catch (e) {
+              console.warn('GIF encoder cleanup warning:', e)
+            }
           }
+          abortController.abort()
           
-          // Create frame image data
-          const frameImageData = fullCtx.createImageData(frame.dims.width, frame.dims.height)
-          frameImageData.data.set(frame.patch)
-          
-          // Draw frame
-          fullCtx.putImageData(frameImageData, frame.dims.left, frame.dims.top)
-          
-          // Extract slice area
-          const sliceCanvas = document.createElement('canvas')
-          const sliceCtx = sliceCanvas.getContext('2d')
-          sliceCanvas.width = slice.width
-          sliceCanvas.height = slice.height
-          
-          // Draw the sliced portion
-          sliceCtx.drawImage(
-            fullCanvas,
-            slice.x, slice.y, slice.width, slice.height,
-            0, 0, slice.width, slice.height
-          )
-          
-          // Add frame to GIF with proper delay (gif.js expects delay in centiseconds)
-          const delayMs = frame.delay || 100
-          const delayCentiseconds = Math.max(1, Math.round(delayMs / 10))
-          
-          gif.addFrame(sliceCanvas, { delay: delayCentiseconds })
-          
-          // Update progress
-          const progress = Math.round((i + 1) / frames.length * 50) // 50% for frame processing
-          console.log(`Frame processing progress: ${progress}%`)
+          // Clean up canvas contexts
+          if (fullCtx) {
+            fullCtx.clearRect(0, 0, fullCanvas.width, fullCanvas.height)
+          }
         }
         
-        // Render the GIF
-        gif.on('finished', function(blob) {
-          clearTimeout(timeout)
+        let previousImageData = null
+        let processedFrameCount = 0
+        
+        // Process frames and add to GIF with memory optimization
+        for (let i = 0; i < processedFrames.length; i++) {
+          if (abortController.signal.aborted) {
+            cleanup()
+            reject(new Error('GIF processing cancelled'))
+            return
+          }
+          
+          const frame = processedFrames[i]
+          
+          try {
+            // Clear canvas and draw frame
+            fullCtx.clearRect(0, 0, fullCanvas.width, fullCanvas.height)
+            fullCtx.putImageData(frame.imageData, 0, 0)
+            
+            // Create slice canvas
+            const sliceCanvas = document.createElement('canvas')
+            const sliceCtx = sliceCanvas.getContext('2d')
+            sliceCanvas.width = slice.width
+            sliceCanvas.height = slice.height
+            
+            // Extract slice from full frame
+            sliceCtx.drawImage(fullCanvas, slice.x, slice.y, slice.width, slice.height, 0, 0, slice.width, slice.height)
+            
+            // Get frame delay with bounds checking
+            const delayMs = Math.max(50, Math.min(1000, frame.delay || 100))
+            const delayCentiseconds = Math.max(5, Math.round(delayMs / 10))
+            
+            // Add frame to GIF
+            gifEncoder.addFrame(sliceCtx, { delay: delayCentiseconds })
+            processedFrameCount++
+            
+            // Update progress with time estimation
+            const progress = Math.round((i / processedFrames.length) * 50)
+            const elapsed = Date.now() - processingStartTime
+            const estimatedTotal = elapsed * (processedFrames.length / (i + 1))
+            const remainingTime = Math.max(0, Math.round((estimatedTotal - elapsed) / 1000))
+// Note: processingToast would need to be passed as parameter or managed differently
+            // For now, we'll skip the toast update to avoid undefined reference
+            
+            // Clean up slice canvas
+            sliceCtx.clearRect(0, 0, slice.width, slice.height)
+            
+          } catch (frameError) {
+            console.warn(`Frame ${i} processing error:`, frameError)
+            // Continue with next frame instead of failing completely
+          }
+        }
+        
+        // Validate that we have processed frames
+        if (processedFrameCount === 0) {
+          cleanup()
+          reject(new Error('No frames were successfully processed'))
+          return
+        }
+        
+        // Handle GIF completion
+        gifEncoder.on('finished', (blob) => {
+          cleanup()
+          
+          // Validate blob size
+          if (blob.size === 0) {
+            reject(new Error('Generated GIF is empty'))
+            return
+          }
+          
+          if (blob.size > 50 * 1024 * 1024) { // 50MB limit
+            reject(new Error('Generated GIF is too large (>50MB)'))
+            return
+          }
+          
           const url = URL.createObjectURL(blob)
-          
-          // Close processing toast
-          toast.dismiss(processingToast)
-          toast.success('Animated GIF slice created successfully!')
-          
+          const processingTime = Date.now() - processingStartTime
+console.log(`GIF processing completed in ${processingTime}ms, size: ${Math.round(blob.size/1024)}KB`)
           resolve({
             id: slice.id,
             name: `slice-${slice.order}.gif`,
@@ -241,46 +348,119 @@ const createAnimatedGifSlice = async (slice, uploadedFile, frames) => {
             url: url,
             width: slice.width,
             height: slice.height,
-            outputFormat: 'gif',
-            isAnimated: true,
-            frameCount: frames.length
+            outputFormat: 'gif'
           })
         })
         
-        gif.on('progress', function(p) {
-          // Update progress with encoding progress (50% + 50% for encoding)
-          const totalProgress = 50 + Math.round(p * 50)
-          console.log(`GIF encoding progress: ${totalProgress}%`)
+        // Handle GIF progress with enhanced reporting
+gifEncoder.on('progress', (progress) => {
+          const totalProgress = 50 + Math.round(progress * 50)
+          const elapsed = Date.now() - processingStartTime
+          const estimatedTotal = elapsed / ((50 + progress * 50) / 100)
+          const remainingTime = Math.max(0, Math.round((estimatedTotal - elapsed) / 1000))
+          
+          // Note: processingToast would need to be passed as parameter or managed differently
+          // For now, we'll skip the toast update to avoid undefined reference
         })
         
-        gif.render()
+        // Handle GIF error with detailed logging
+        gifEncoder.on('error', (error) => {
+          cleanup()
+          console.error('GIF encoder error:', error)
+          reject(new Error(`GIF encoding failed: ${error.message || 'Unknown error'}`))
+        })
+        
+        // Start GIF rendering with error boundary
+        try {
+          gifEncoder.render()
+        } catch (renderError) {
+          cleanup()
+          reject(new Error(`GIF render initiation failed: ${renderError.message}`))
+        }
         
       } catch (error) {
-        clearTimeout(timeout)
-        console.error('Error creating animated GIF slice:', error)
-        toast.error('Failed to create animated GIF slice')
-        reject(error)
+        if (progressiveTimeout) clearTimeout(progressiveTimeout)
+        console.error('GIF processing setup error:', error)
+        reject(new Error(`GIF processing setup failed: ${error.message}`))
       }
     })
-  }
+}
   
-  const handleSliceImage = async () => {
-    if (!uploadedFile || slices.length === 0) return
+  // Main function to handle slice image creation with enhanced error handling
+  async function handleSliceImage() {
+    if (!uploadedFile || slices.length === 0) {
+      toast.error('Please upload an image and create some slices first')
+      return
+    }
     
-    setIsProcessing(true)
+    const processingToast = toast.loading('Processing slices...')
+    let processedCount = 0
+    let successCount = 0
     
     try {
       const results = []
       
-      // Sort slices by order
+      // Sort slices by order for consistent processing
       const sortedSlices = [...slices].sort((a, b) => a.order - b.order)
       
-      // Create each slice
+      // Process slices with progress tracking
       for (const slice of sortedSlices) {
-        const sliceImage = await createSliceImage(slice, uploadedFile)
-        results.push(sliceImage)
+        processedCount++
+        
+        try {
+          // Update progress
+          toast.update(processingToast, {
+            render: `Processing slice ${processedCount}/${sortedSlices.length}...`,
+            progress: processedCount / sortedSlices.length
+          })
+          
+          const sliceImage = await createSliceImage(slice, uploadedFile)
+          results.push({
+            slice,
+            image: sliceImage,
+            error: null
+          })
+          successCount++
+          
+        } catch (error) {
+          console.error('Error creating slice:', error)
+          
+          // Provide specific error context
+          let errorMessage = error.message
+          if (error.message.includes('timeout')) {
+            errorMessage = 'Processing timeout - try reducing slice size or using static format'
+          } else if (error.message.includes('memory')) {
+            errorMessage = 'Insufficient memory - try reducing image size'
+          } else if (error.message.includes('GIF')) {
+            errorMessage = 'GIF processing failed - falling back to static format'
+          }
+          
+          results.push({
+            slice,
+            image: null,
+            error: errorMessage
+          })
+          
+          // Show individual slice error as warning
+          toast.warning(`Slice ${processedCount} failed: ${errorMessage}`, {
+            autoClose: 3000
+          })
+        }
       }
       
+      setSliceResults(results)
+      toast.dismiss(processingToast)
+      
+      // Show completion summary
+      if (successCount === sortedSlices.length) {
+        toast.success(`Successfully processed all ${successCount} slices!`)
+      } else if (successCount > 0) {
+        toast.warning(`Processed ${successCount}/${sortedSlices.length} slices successfully`)
+      } else {
+        toast.error('Failed to process any slices')
+      }
+      
+// Set results and show them
       setSlicedImages(results)
       setShowResults(true)
       
@@ -292,7 +472,6 @@ const createAnimatedGifSlice = async (slice, uploadedFile, frames) => {
         }
       }, 100)
       
-      toast.success(`Successfully sliced image into ${results.length} pieces!`)
     } catch (error) {
       console.error('Error slicing image:', error)
       toast.error('Failed to slice image. Please try again.')
