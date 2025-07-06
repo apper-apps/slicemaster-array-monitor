@@ -43,12 +43,22 @@ const SlicePreview = ({ slice, onDownload }) => {
           </div>
         </div>
         
-        <div className="p-3">
-          <h4 className="font-medium text-sm text-gray-900 truncate">
-            {slice.name}
-          </h4>
+<div className="p-3">
+          <div className="flex items-center justify-between">
+            <h4 className="font-medium text-sm text-gray-900 truncate">
+              {slice.name}
+            </h4>
+            {slice.isAnimated && (
+              <div className="flex items-center text-secondary">
+                <ApperIcon name="Play" size={12} />
+              </div>
+            )}
+          </div>
           <p className="text-xs text-gray-500 mt-1">
             {slice.width} × {slice.height}
+            {slice.outputFormat && slice.outputFormat !== 'original' && (
+              <span className="ml-1 text-primary">• {slice.outputFormat.toUpperCase()}</span>
+            )}
           </p>
         </div>
       </Card>

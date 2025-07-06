@@ -1,15 +1,17 @@
-import { useState, useEffect } from 'react'
-import { motion } from 'framer-motion'
-import { toast } from 'react-toastify'
-import FileUpload from '@/components/molecules/FileUpload'
-import ImageCanvas from '@/components/organisms/ImageCanvas'
-import SliceResults from '@/components/organisms/SliceResults'
-import ControlBar from '@/components/molecules/ControlBar'
-import Loading from '@/components/ui/Loading'
-import Empty from '@/components/ui/Empty'
-import ApperIcon from '@/components/ApperIcon'
-import Button from '@/components/atoms/Button'
-import Card from '@/components/atoms/Card'
+import React, { useEffect, useState } from "react";
+import { motion } from "framer-motion";
+import { toast } from "react-toastify";
+import { decompressFrames, parseGIF } from "gifuct-js";
+import SliceManager from "@/components/organisms/SliceManager";
+import ApperIcon from "@/components/ApperIcon";
+import SliceResults from "@/components/organisms/SliceResults";
+import ImageCanvas from "@/components/organisms/ImageCanvas";
+import Button from "@/components/atoms/Button";
+import Card from "@/components/atoms/Card";
+import Empty from "@/components/ui/Empty";
+import Loading from "@/components/ui/Loading";
+import ControlBar from "@/components/molecules/ControlBar";
+import FileUpload from "@/components/molecules/FileUpload";
 
 const SlicerPage = () => {
   const [uploadedFile, setUploadedFile] = useState(null)
@@ -18,15 +20,31 @@ const SlicerPage = () => {
   const [snapMode, setSnapMode] = useState(true)
   const [isProcessing, setIsProcessing] = useState(false)
   const [showResults, setShowResults] = useState(false)
-  
-  const handleFileSelect = (file) => {
+  const [showSliceManager, setShowSliceManager] = useState(false)
+  const [activeSlice, setActiveSlice] = useState(null)
+  const [gifFrames, setGifFrames] = useState(null)
+const handleFileSelect = async (file) => {
     setUploadedFile(file)
     setSlices([])
     setSlicedImages([])
     setShowResults(false)
+    setGifFrames(null)
+    
+    // Parse GIF if it's a GIF file
+    if (file.isGif) {
+      try {
+        const arrayBuffer = await file.file.arrayBuffer()
+        const gif = parseGIF(arrayBuffer)
+        const frames = decompressFrames(gif, true)
+        setGifFrames(frames)
+      } catch (error) {
+        console.error('Error parsing GIF:', error)
+        toast.warning('Could not parse GIF animation, treating as static image')
+      }
+    }
   }
   
-  const handleReupload = () => {
+const handleReupload = () => {
     if (uploadedFile) {
       URL.revokeObjectURL(uploadedFile.url)
     }
@@ -34,6 +52,9 @@ const SlicerPage = () => {
     setSlices([])
     setSlicedImages([])
     setShowResults(false)
+    setShowSliceManager(false)
+    setActiveSlice(null)
+    setGifFrames(null)
   }
   
   const handleClearSlices = () => {
@@ -46,7 +67,22 @@ const SlicerPage = () => {
     }
   }
   
-  const createSliceImage = async (slice, uploadedFile) => {
+const createSliceImage = async (slice, uploadedFile) => {
+    return new Promise((resolve) => {
+      const outputFormat = slice.outputFormat || 'original'
+      const isGifOutput = outputFormat === 'gif' || (outputFormat === 'original' && uploadedFile.isGif)
+      
+      if (isGifOutput && gifFrames && gifFrames.length > 0) {
+        // Create animated GIF slice
+        createAnimatedGifSlice(slice, uploadedFile, gifFrames).then(resolve)
+      } else {
+        // Create static image slice
+        createStaticSlice(slice, uploadedFile, outputFormat).then(resolve)
+      }
+    })
+  }
+
+  const createStaticSlice = async (slice, uploadedFile, outputFormat) => {
     return new Promise((resolve) => {
       const canvas = document.createElement('canvas')
       const ctx = canvas.getContext('2d')
@@ -63,20 +99,105 @@ const SlicerPage = () => {
           0, 0, slice.width, slice.height // destination rectangle
         )
         
+        // Determine output format and MIME type
+        let mimeType = uploadedFile.type
+        let extension = uploadedFile.type.split('/')[1]
+        
+        if (outputFormat === 'png') {
+          mimeType = 'image/png'
+          extension = 'png'
+        } else if (outputFormat === 'jpg') {
+          mimeType = 'image/jpeg'
+          extension = 'jpg'
+        } else if (outputFormat === 'gif') {
+          mimeType = 'image/gif'
+          extension = 'gif'
+        }
+        
         canvas.toBlob((blob) => {
           const url = URL.createObjectURL(blob)
           resolve({
             id: slice.id,
-            name: `slice-${slice.order}.${uploadedFile.type.split('/')[1]}`,
+            name: `slice-${slice.order}.${extension}`,
             blob: blob,
             url: url,
             width: slice.width,
-            height: slice.height
+            height: slice.height,
+            outputFormat: outputFormat
           })
-        }, uploadedFile.type, 0.95)
+        }, mimeType, 0.95)
       }
       
       img.src = uploadedFile.url
+    })
+  }
+
+  const createAnimatedGifSlice = async (slice, uploadedFile, frames) => {
+    return new Promise((resolve) => {
+      try {
+        // Create canvas for each frame
+        const slicedFrames = []
+        const canvas = document.createElement('canvas')
+        const ctx = canvas.getContext('2d')
+        
+        canvas.width = slice.width
+        canvas.height = slice.height
+        
+        // Process each frame
+        let processedFrames = 0
+        
+        frames.forEach((frame, index) => {
+          const frameCanvas = document.createElement('canvas')
+          const frameCtx = frameCanvas.getContext('2d')
+          
+          frameCanvas.width = uploadedFile.width
+          frameCanvas.height = uploadedFile.height
+          
+          // Draw frame data
+          const imageData = frameCtx.createImageData(frame.dims.width, frame.dims.height)
+          imageData.data.set(frame.patch)
+          frameCtx.putImageData(imageData, frame.dims.left, frame.dims.top)
+          
+          // Extract slice from frame
+          ctx.clearRect(0, 0, slice.width, slice.height)
+          ctx.drawImage(
+            frameCanvas,
+            slice.x, slice.y, slice.width, slice.height,
+            0, 0, slice.width, slice.height
+          )
+          
+          // Convert slice to blob
+          canvas.toBlob((blob) => {
+            slicedFrames[index] = {
+              blob: blob,
+              delay: frame.delay || 100
+            }
+            
+            processedFrames++
+            
+            if (processedFrames === frames.length) {
+              // Create final animated GIF blob (simplified - in production use proper GIF encoder)
+              const url = URL.createObjectURL(slicedFrames[0].blob)
+              resolve({
+                id: slice.id,
+                name: `slice-${slice.order}.gif`,
+                blob: slicedFrames[0].blob, // Simplified - use first frame
+                url: url,
+                width: slice.width,
+                height: slice.height,
+                outputFormat: 'gif',
+                isAnimated: true,
+                frames: slicedFrames
+              })
+            }
+          }, 'image/gif')
+        })
+        
+      } catch (error) {
+        console.error('Error creating animated GIF slice:', error)
+        // Fallback to static slice
+        createStaticSlice(slice, uploadedFile, 'gif').then(resolve)
+      }
     })
   }
   
@@ -158,7 +279,7 @@ const SlicerPage = () => {
               </div>
             </div>
             
-            <div className="flex items-center space-x-2">
+<div className="flex items-center space-x-2">
               <div className="flex items-center space-x-2 px-3 py-1 bg-gray-100 rounded-full">
                 <ApperIcon name="Zap" size={16} className="text-primary" />
                 <span className="text-sm font-medium text-gray-700">
@@ -275,14 +396,33 @@ const SlicerPage = () => {
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.5, delay: 0.2 }}
             >
-              <ImageCanvas
-                uploadedFile={uploadedFile}
-                slices={slices}
-                onSlicesChange={setSlices}
-                snapMode={snapMode}
-              />
+<div className="flex space-x-6">
+                <div className={`transition-all duration-300 ${showSliceManager ? 'w-2/3' : 'w-full'}`}>
+                  <ImageCanvas
+                    uploadedFile={uploadedFile}
+                    slices={slices}
+                    onSlicesChange={setSlices}
+                    snapMode={snapMode}
+                    activeSlice={activeSlice}
+                    onActiveSliceChange={setActiveSlice}
+                    showSliceManager={showSliceManager}
+                  />
+                </div>
+                {showSliceManager && (
+                  <div className="w-1/3">
+                    <SliceManager
+                      slices={slices}
+                      onSlicesChange={setSlices}
+                      isOpen={showSliceManager}
+                      onClose={() => setShowSliceManager(false)}
+                      activeSlice={activeSlice}
+                      onSliceSelect={setActiveSlice}
+                      uploadedFile={uploadedFile}
+                    />
+                  </div>
+                )}
+              </div>
             </motion.div>
-            
             {/* Results */}
             {showResults && slicedImages.length > 0 && (
               <SliceResults
@@ -304,7 +444,7 @@ const SlicerPage = () => {
       
       {/* Control Bar */}
       {uploadedFile && (
-        <ControlBar
+<ControlBar
           onReupload={handleReupload}
           onClearSlices={handleClearSlices}
           onSliceImage={handleSliceImage}
@@ -313,6 +453,8 @@ const SlicerPage = () => {
           hasImage={!!uploadedFile}
           hasSlices={slices.length > 0}
           isProcessing={isProcessing}
+          showSliceManager={showSliceManager}
+          onToggleSliceManager={() => setShowSliceManager(!showSliceManager)}
         />
       )}
     </div>

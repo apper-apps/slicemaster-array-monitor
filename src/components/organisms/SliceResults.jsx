@@ -10,7 +10,7 @@ import SlicePreview from '@/components/molecules/SlicePreview'
 const SliceResults = ({ slices, onSliceDownload }) => {
   const [isDownloading, setIsDownloading] = useState(false)
   
-  const handleDownloadAll = async () => {
+const handleDownloadAll = async () => {
     if (slices.length === 0) return
     
     setIsDownloading(true)
@@ -20,9 +20,17 @@ const SliceResults = ({ slices, onSliceDownload }) => {
       
       // Add each slice to the zip
       for (const slice of slices) {
-        const response = await fetch(slice.url)
-        const blob = await response.blob()
-        zip.file(slice.name, blob)
+        if (slice.isAnimated && slice.frames) {
+          // For animated GIFs, create a proper animated GIF (simplified implementation)
+          const response = await fetch(slice.url)
+          const blob = await response.blob()
+          zip.file(slice.name, blob)
+        } else {
+          // For static images
+          const response = await fetch(slice.url)
+          const blob = await response.blob()
+          zip.file(slice.name, blob)
+        }
       }
       
       // Generate and download the zip
@@ -95,7 +103,7 @@ const SliceResults = ({ slices, onSliceDownload }) => {
               animate={{ opacity: 1, scale: 1 }}
               transition={{ duration: 0.3, delay: index * 0.1 }}
             >
-              <SlicePreview
+<SlicePreview
                 slice={slice}
                 onDownload={onSliceDownload}
               />

@@ -8,9 +8,12 @@ const ImageCanvas = ({
   slices, 
   onSlicesChange, 
   snapMode, 
-  gridSize = 10 
+  gridSize = 10,
+  activeSlice,
+  onActiveSliceChange,
+  showSliceManager
 }) => {
-  const [activeSlice, setActiveSlice] = useState(null)
+const [localActiveSlice, setLocalActiveSlice] = useState(null)
   const [isCreating, setIsCreating] = useState(false)
   const [startPos, setStartPos] = useState(null)
   const [dragMode, setDragMode] = useState(null) // 'move' or 'resize'
@@ -79,12 +82,14 @@ const ImageCanvas = ({
       const handle = getResizeHandle(existingSlice, pos)
       if (handle) {
         setDragMode('resize')
-        setResizeHandle(handle)
-        setActiveSlice(existingSlice.id)
+setResizeHandle(handle)
+        setLocalActiveSlice(existingSlice.id)
+        onActiveSliceChange?.(existingSlice.id)
       } else {
         // Move existing slice
-        setDragMode('move')
-        setActiveSlice(existingSlice.id)
+setDragMode('move')
+        setLocalActiveSlice(existingSlice.id)
+        onActiveSliceChange?.(existingSlice.id)
         setDragOffset({
           x: pos.x - existingSlice.x,
           y: pos.y - existingSlice.y
@@ -93,8 +98,9 @@ const ImageCanvas = ({
     } else {
       // Create new slice
       setIsCreating(true)
-      setStartPos(pos)
-      setActiveSlice(null)
+setStartPos(pos)
+      setLocalActiveSlice(null)
+      onActiveSliceChange?.(null)
     }
     
     e.preventDefault()
@@ -128,10 +134,10 @@ const ImageCanvas = ({
           preview.style.display = 'block'
         }
       }
-    } else if (dragMode === 'move' && activeSlice) {
+} else if (dragMode === 'move' && localActiveSlice) {
       // Move slice
       const newSlices = slices.map(slice => {
-        if (slice.id === activeSlice) {
+if (slice.id === localActiveSlice) {
           return {
             ...slice,
             x: snapToGrid(Math.max(0, Math.min(uploadedFile.width - slice.width, pos.x - dragOffset.x))),
@@ -141,10 +147,10 @@ const ImageCanvas = ({
         return slice
       })
       onSlicesChange(newSlices)
-    } else if (dragMode === 'resize' && activeSlice && resizeHandle) {
+} else if (dragMode === 'resize' && localActiveSlice && resizeHandle) {
       // Resize slice
       const newSlices = slices.map(slice => {
-        if (slice.id === activeSlice) {
+if (slice.id === localActiveSlice) {
           return resizeSlice(slice, pos, resizeHandle)
         }
         return slice
@@ -162,13 +168,14 @@ const ImageCanvas = ({
       const height = Math.abs(pos.y - startPos.y)
       
       if (width > 10 && height > 10) { // Minimum size
-        const newSlice = {
+const newSlice = {
           id: Date.now().toString(),
           x: snapToGrid(left),
           y: snapToGrid(top),
           width: snapToGrid(width),
           height: snapToGrid(height),
-          order: slices.length + 1
+          order: slices.length + 1,
+          outputFormat: 'original'
         }
         onSlicesChange([...slices, newSlice])
       }
@@ -182,9 +189,10 @@ const ImageCanvas = ({
     
     setIsCreating(false)
     setStartPos(null)
-    setDragMode(null)
+setDragMode(null)
     setResizeHandle(null)
-    setActiveSlice(null)
+    setLocalActiveSlice(null)
+    onActiveSliceChange?.(null)
     setDragOffset({ x: 0, y: 0 })
     
     clearTimeout(scrollTimeoutRef.current)
@@ -280,7 +288,7 @@ const ImageCanvas = ({
   if (!uploadedFile) return null
   
   return (
-    <Card className="overflow-hidden">
+<Card className={`overflow-hidden transition-all duration-300 ${showSliceManager ? 'mr-4' : ''}`}>
       <div 
         ref={containerRef}
         className="max-h-[70vh] overflow-auto"
@@ -317,7 +325,7 @@ const ImageCanvas = ({
           {slices.map((slice) => (
             <div
               key={slice.id}
-              className={`selection-rectangle ${activeSlice === slice.id ? 'active' : ''}`}
+className={`selection-rectangle ${(localActiveSlice === slice.id || activeSlice === slice.id) ? 'active' : ''}`}
               style={{
                 left: slice.x,
                 top: slice.y,

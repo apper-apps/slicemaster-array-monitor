@@ -11,7 +11,9 @@ const ControlBar = ({
   onSnapModeChange,
   hasImage,
   hasSlices,
-  isProcessing
+  isProcessing,
+  showSliceManager,
+  onToggleSliceManager
 }) => {
   return (
     <motion.div
@@ -54,6 +56,15 @@ const ControlBar = ({
           >
             <ApperIcon name="Trash2" size={16} className="mr-2" />
             Clear All Slices
+          </Button>
+<Button
+            variant="outline"
+            size="md"
+            onClick={onToggleSliceManager}
+            disabled={!hasImage || isProcessing}
+          >
+            <ApperIcon name={showSliceManager ? "PanelRightClose" : "PanelRight"} size={16} className="mr-2" />
+            {showSliceManager ? 'Hide' : 'Show'} Manager
           </Button>
           
           <Button
