@@ -138,6 +138,9 @@ const createSliceImage = async (slice, uploadedFile) => {
 
 const createAnimatedGifSlice = async (slice, uploadedFile, frames) => {
     return new Promise(async (resolve, reject) => {
+      // Declare processingToast variable to prevent scoping issues
+      let processingToast
+      
       // Set up timeout to prevent hanging
       const timeout = setTimeout(() => {
         toast.dismiss(processingToast)
@@ -147,11 +150,10 @@ const createAnimatedGifSlice = async (slice, uploadedFile, frames) => {
       
       try {
         // Show processing indication
-        const processingToast = toast.info('Processing animated GIF slice...', { 
+        processingToast = toast.info('Processing animated GIF slice...', { 
           autoClose: false,
           hideProgressBar: false 
         })
-        
         // Create a full canvas to reconstruct the GIF
         const fullCanvas = document.createElement('canvas')
         const fullCtx = fullCanvas.getContext('2d')
