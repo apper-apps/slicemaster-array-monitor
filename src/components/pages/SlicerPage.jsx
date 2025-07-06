@@ -3,8 +3,9 @@ import { motion } from "framer-motion";
 import { toast } from "react-toastify";
 import { decompressFrames, parseGIF } from "gifuct-js";
 import { gifCrop } from "cropperjs-gif";
-import SliceManager from "@/components/organisms/SliceManager";
+import GIF from "gif.js";
 import ApperIcon from "@/components/ApperIcon";
+import SliceManager from "@/components/organisms/SliceManager";
 import SliceResults from "@/components/organisms/SliceResults";
 import ImageCanvas from "@/components/organisms/ImageCanvas";
 import Button from "@/components/atoms/Button";
@@ -151,8 +152,17 @@ const createAnimatedGifSlice = async (slice, uploadedFile, frames) => {
         fullCanvas.width = uploadedFile.width
         fullCanvas.height = uploadedFile.height
         
+        // Create GIF encoder with proper settings
+        const gif = new GIF({
+          workers: 2,
+          quality: 10, // 1-30, lower is better quality
+          width: slice.width,
+          height: slice.height,
+          repeat: 0, // 0 = infinite loop
+          transparent: null
+        })
+        
         // Process frames to create complete images
-        const processedFrames = []
         let previousImageData = null
         
         for (const frame of frames) {
@@ -193,42 +203,39 @@ const createAnimatedGifSlice = async (slice, uploadedFile, frames) => {
             0, 0, slice.width, slice.height
           )
           
-          // Convert to ImageData for GIF encoder
-          const sliceImageData = sliceCtx.getImageData(0, 0, slice.width, slice.height)
+          // Add frame to GIF with proper delay (gif.js expects delay in centiseconds)
+          const delayMs = frame.delay || 100
+          const delayCentiseconds = Math.max(1, Math.round(delayMs / 10))
           
-          processedFrames.push({
-            data: sliceImageData.data,
-            delay: frame.delay || 100
-          })
+          gif.addFrame(sliceCanvas, { delay: delayCentiseconds })
         }
         
-        // Use cropperjs-gif to create the final animated GIF
-        const gifBuffer = await gifCrop({
-          frames: processedFrames,
-          width: slice.width,
-          height: slice.height,
-          repeat: 0, // 0 = infinite loop
-          quality: 80
+        // Render the GIF
+        gif.on('finished', function(blob) {
+          const url = URL.createObjectURL(blob)
+          
+          // Close processing toast
+          toast.dismiss(processingToast)
+          
+          resolve({
+            id: slice.id,
+            name: `slice-${slice.order}.gif`,
+            blob: blob,
+            url: url,
+            width: slice.width,
+            height: slice.height,
+            outputFormat: 'gif',
+            isAnimated: true,
+            frameCount: frames.length
+          })
         })
         
-        // Create blob from buffer
-        const gifBlob = new Blob([gifBuffer], { type: 'image/gif' })
-        const url = URL.createObjectURL(gifBlob)
-        
-        // Close processing toast
-        toast.dismiss(processingToast)
-        
-        resolve({
-          id: slice.id,
-          name: `slice-${slice.order}.gif`,
-          blob: gifBlob,
-          url: url,
-          width: slice.width,
-          height: slice.height,
-          outputFormat: 'gif',
-          isAnimated: true,
-          frameCount: processedFrames.length
+        gif.on('progress', function(p) {
+          // Update progress in toast if needed
+          console.log('GIF encoding progress:', Math.round(p * 100) + '%')
         })
+        
+        gif.render()
         
       } catch (error) {
         console.error('Error creating animated GIF slice:', error)
