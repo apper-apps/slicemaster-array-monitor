@@ -9,10 +9,10 @@ const Loading = ({ message = "Loading...", fullScreen = false }) => {
   return (
     <div className={containerClass}>
       <div className="text-center">
-        <motion.div
+<motion.div
           className="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-r from-primary to-blue-600 rounded-full mb-4"
           animate={{ rotate: 360 }}
-          transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
+          transition={{ duration: 1.5, repeat: Infinity, ease: "linear" }}
         >
           <ApperIcon name="Loader2" size={32} className="text-white" />
         </motion.div>
@@ -32,18 +32,19 @@ const Loading = ({ message = "Loading...", fullScreen = false }) => {
           animate={{ opacity: 1 }}
           transition={{ delay: 0.4 }}
         >
-          {[0, 1, 2].map((i) => (
+{[0, 1, 2].map((i) => (
             <motion.div
               key={i}
               className="w-2 h-2 bg-primary rounded-full"
               animate={{
-                scale: [1, 1.2, 1],
-                opacity: [0.5, 1, 0.5]
+                scale: [1, 1.3, 1],
+                opacity: [0.4, 1, 0.4]
               }}
               transition={{
-                duration: 1,
+                duration: 0.8,
                 repeat: Infinity,
-                delay: i * 0.2
+                delay: i * 0.15,
+                ease: "easeInOut"
               }}
             />
           ))}

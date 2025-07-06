@@ -138,6 +138,13 @@ const createSliceImage = async (slice, uploadedFile) => {
 
 const createAnimatedGifSlice = async (slice, uploadedFile, frames) => {
     return new Promise(async (resolve, reject) => {
+      // Set up timeout to prevent hanging
+      const timeout = setTimeout(() => {
+        toast.dismiss(processingToast)
+        toast.error('GIF processing timed out. Falling back to static image.')
+        reject(new Error('GIF processing timeout'))
+      }, 30000) // 30 second timeout
+      
       try {
         // Show processing indication
         const processingToast = toast.info('Processing animated GIF slice...', { 
@@ -151,20 +158,23 @@ const createAnimatedGifSlice = async (slice, uploadedFile, frames) => {
         fullCanvas.width = uploadedFile.width
         fullCanvas.height = uploadedFile.height
         
-        // Create GIF encoder with proper settings
+        // Create GIF encoder with optimized settings for better performance
         const gif = new GIF({
-          workers: 2,
-          quality: 10, // 1-30, lower is better quality
+          workers: 1, // Reduced workers to prevent resource contention
+          quality: 20, // Increased quality value for faster encoding (1-30, higher = faster)
           width: slice.width,
           height: slice.height,
           repeat: 0, // 0 = infinite loop
-          transparent: null
+          transparent: null,
+          workerScript: '/gif.worker.js'
         })
         
         // Process frames to create complete images
         let previousImageData = null
         
-        for (const frame of frames) {
+        for (let i = 0; i < frames.length; i++) {
+          const frame = frames[i]
+          
           // Clear canvas with transparent background
           fullCtx.clearRect(0, 0, fullCanvas.width, fullCanvas.height)
           
@@ -207,14 +217,20 @@ const createAnimatedGifSlice = async (slice, uploadedFile, frames) => {
           const delayCentiseconds = Math.max(1, Math.round(delayMs / 10))
           
           gif.addFrame(sliceCanvas, { delay: delayCentiseconds })
+          
+          // Update progress
+          const progress = Math.round((i + 1) / frames.length * 50) // 50% for frame processing
+          console.log(`Frame processing progress: ${progress}%`)
         }
         
         // Render the GIF
         gif.on('finished', function(blob) {
+          clearTimeout(timeout)
           const url = URL.createObjectURL(blob)
           
           // Close processing toast
           toast.dismiss(processingToast)
+          toast.success('Animated GIF slice created successfully!')
           
           resolve({
             id: slice.id,
@@ -230,13 +246,15 @@ const createAnimatedGifSlice = async (slice, uploadedFile, frames) => {
         })
         
         gif.on('progress', function(p) {
-          // Update progress in toast if needed
-          console.log('GIF encoding progress:', Math.round(p * 100) + '%')
+          // Update progress with encoding progress (50% + 50% for encoding)
+          const totalProgress = 50 + Math.round(p * 50)
+          console.log(`GIF encoding progress: ${totalProgress}%`)
         })
         
         gif.render()
         
       } catch (error) {
+        clearTimeout(timeout)
         console.error('Error creating animated GIF slice:', error)
         toast.error('Failed to create animated GIF slice')
         reject(error)
