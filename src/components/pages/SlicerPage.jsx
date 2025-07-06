@@ -2,7 +2,6 @@ import React, { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { toast } from "react-toastify";
 import { decompressFrames, parseGIF } from "gifuct-js";
-import { gifCrop } from "cropperjs-gif";
 import GIF from "gif.js";
 import ApperIcon from "@/components/ApperIcon";
 import SliceManager from "@/components/organisms/SliceManager";
