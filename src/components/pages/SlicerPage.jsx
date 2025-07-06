@@ -10,7 +10,7 @@ import ImageCanvas from "@/components/organisms/ImageCanvas";
 import Button from "@/components/atoms/Button";
 import Card from "@/components/atoms/Card";
 import Empty from "@/components/ui/Empty";
-import Error from "@/components/ui/Error";
+import ErrorComponent from "@/components/ui/Error";
 import Loading from "@/components/ui/Loading";
 import ControlBar from "@/components/molecules/ControlBar";
 import FileUpload from "@/components/molecules/FileUpload";
@@ -446,9 +446,8 @@ gifEncoder.on('progress', (progress) => {
             autoClose: 3000
           })
         }
-      }
+}
       
-      setSliceResults(results)
       toast.dismiss(processingToast)
       
       // Show completion summary
