@@ -9,9 +9,10 @@
     "lint": "eslint . --ext js,jsx --report-unused-disable-directives --max-warnings 0",
     "preview": "vite preview"
   },
-  "dependencies": {
+"dependencies": {
     "@reduxjs/toolkit": "2.7.0",
     "apexcharts": "4.7.0",
+    "clsx": "^2.1.1",
     "date-fns": "4.1.0",
     "framer-motion": "10.16.4",
     "jszip": "3.10.1",
@@ -21,7 +22,8 @@
     "react-dom": "^18.2.0",
     "react-redux": "9.2.0",
     "react-router-dom": "6.15.0",
-    "react-toastify": "11.0.5"
+    "react-toastify": "11.0.5",
+    "tailwind-merge": "^2.5.4"
   },
   "devDependencies": {
     "@types/react": "^18.2.15",
