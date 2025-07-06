@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { toast } from "react-toastify";
 import { decompressFrames, parseGIF } from "gifuct-js";
+import { gifCrop } from "cropperjs-gif";
 import SliceManager from "@/components/organisms/SliceManager";
 import ApperIcon from "@/components/ApperIcon";
 import SliceResults from "@/components/organisms/SliceResults";
@@ -73,8 +74,11 @@ const createSliceImage = async (slice, uploadedFile) => {
       const isGifOutput = outputFormat === 'gif' || (outputFormat === 'original' && uploadedFile.isGif)
       
       if (isGifOutput && gifFrames && gifFrames.length > 0) {
-        // Create animated GIF slice
-        createAnimatedGifSlice(slice, uploadedFile, gifFrames).then(resolve)
+        // Create animated GIF slice with proper encoding
+        createAnimatedGifSlice(slice, uploadedFile, gifFrames).then(resolve).catch(error => {
+          console.error('GIF slicing failed, falling back to static:', error)
+          createStaticSlice(slice, uploadedFile, 'gif').then(resolve)
+        })
       } else {
         // Create static image slice
         createStaticSlice(slice, uploadedFile, outputFormat).then(resolve)
@@ -132,71 +136,104 @@ const createSliceImage = async (slice, uploadedFile) => {
     })
   }
 
-  const createAnimatedGifSlice = async (slice, uploadedFile, frames) => {
-    return new Promise((resolve) => {
+const createAnimatedGifSlice = async (slice, uploadedFile, frames) => {
+    return new Promise(async (resolve, reject) => {
       try {
-        // Create canvas for each frame
-        const slicedFrames = []
-        const canvas = document.createElement('canvas')
-        const ctx = canvas.getContext('2d')
+        // Show processing indication
+        const processingToast = toast.info('Processing animated GIF slice...', { 
+          autoClose: false,
+          hideProgressBar: false 
+        })
         
-        canvas.width = slice.width
-        canvas.height = slice.height
+        // Create a full canvas to reconstruct the GIF
+        const fullCanvas = document.createElement('canvas')
+        const fullCtx = fullCanvas.getContext('2d')
+        fullCanvas.width = uploadedFile.width
+        fullCanvas.height = uploadedFile.height
         
-        // Process each frame
-        let processedFrames = 0
+        // Process frames to create complete images
+        const processedFrames = []
+        let previousImageData = null
         
-        frames.forEach((frame, index) => {
-          const frameCanvas = document.createElement('canvas')
-          const frameCtx = frameCanvas.getContext('2d')
+        for (const frame of frames) {
+          // Clear canvas with transparent background
+          fullCtx.clearRect(0, 0, fullCanvas.width, fullCanvas.height)
           
-          frameCanvas.width = uploadedFile.width
-          frameCanvas.height = uploadedFile.height
+          // Handle disposal method
+          if (frame.disposalType === 2) {
+            // Restore to background - clear the frame area
+            fullCtx.clearRect(frame.dims.left, frame.dims.top, frame.dims.width, frame.dims.height)
+          } else if (frame.disposalType === 3 && previousImageData) {
+            // Restore to previous - restore the previous frame
+            fullCtx.putImageData(previousImageData, 0, 0)
+          }
           
-          // Draw frame data
-          const imageData = frameCtx.createImageData(frame.dims.width, frame.dims.height)
-          imageData.data.set(frame.patch)
-          frameCtx.putImageData(imageData, frame.dims.left, frame.dims.top)
+          // Save current state before drawing new frame
+          if (frame.disposalType === 3) {
+            previousImageData = fullCtx.getImageData(0, 0, fullCanvas.width, fullCanvas.height)
+          }
           
-          // Extract slice from frame
-          ctx.clearRect(0, 0, slice.width, slice.height)
-          ctx.drawImage(
-            frameCanvas,
+          // Create frame image data
+          const frameImageData = fullCtx.createImageData(frame.dims.width, frame.dims.height)
+          frameImageData.data.set(frame.patch)
+          
+          // Draw frame
+          fullCtx.putImageData(frameImageData, frame.dims.left, frame.dims.top)
+          
+          // Extract slice area
+          const sliceCanvas = document.createElement('canvas')
+          const sliceCtx = sliceCanvas.getContext('2d')
+          sliceCanvas.width = slice.width
+          sliceCanvas.height = slice.height
+          
+          // Draw the sliced portion
+          sliceCtx.drawImage(
+            fullCanvas,
             slice.x, slice.y, slice.width, slice.height,
             0, 0, slice.width, slice.height
           )
           
-          // Convert slice to blob
-          canvas.toBlob((blob) => {
-            slicedFrames[index] = {
-              blob: blob,
-              delay: frame.delay || 100
-            }
-            
-            processedFrames++
-            
-            if (processedFrames === frames.length) {
-              // Create final animated GIF blob (simplified - in production use proper GIF encoder)
-              const url = URL.createObjectURL(slicedFrames[0].blob)
-              resolve({
-                id: slice.id,
-                name: `slice-${slice.order}.gif`,
-                blob: slicedFrames[0].blob, // Simplified - use first frame
-                url: url,
-                width: slice.width,
-                height: slice.height,
-                outputFormat: 'gif',
-                isAnimated: true,
-                frames: slicedFrames
-              })
-            }
-          }, 'image/gif')
+          // Convert to ImageData for GIF encoder
+          const sliceImageData = sliceCtx.getImageData(0, 0, slice.width, slice.height)
+          
+          processedFrames.push({
+            data: sliceImageData.data,
+            delay: frame.delay || 100
+          })
+        }
+        
+        // Use cropperjs-gif to create the final animated GIF
+        const gifBuffer = await gifCrop({
+          frames: processedFrames,
+          width: slice.width,
+          height: slice.height,
+          repeat: 0, // 0 = infinite loop
+          quality: 80
+        })
+        
+        // Create blob from buffer
+        const gifBlob = new Blob([gifBuffer], { type: 'image/gif' })
+        const url = URL.createObjectURL(gifBlob)
+        
+        // Close processing toast
+        toast.dismiss(processingToast)
+        
+        resolve({
+          id: slice.id,
+          name: `slice-${slice.order}.gif`,
+          blob: gifBlob,
+          url: url,
+          width: slice.width,
+          height: slice.height,
+          outputFormat: 'gif',
+          isAnimated: true,
+          frameCount: processedFrames.length
         })
         
       } catch (error) {
         console.error('Error creating animated GIF slice:', error)
-        // Fallback to static slice
-        createStaticSlice(slice, uploadedFile, 'gif').then(resolve)
+        toast.error('Failed to create animated GIF slice')
+        reject(error)
       }
     })
   }

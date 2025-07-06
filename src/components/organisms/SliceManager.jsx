@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
+import { toast } from 'react-toastify'
 import ApperIcon from '@/components/ApperIcon'
 import Button from '@/components/atoms/Button'
 import Card from '@/components/atoms/Card'
@@ -63,15 +64,21 @@ const SliceManager = ({
     }))
   }
 
-  const handleDeleteSlice = (sliceId) => {
-    if (window.confirm('Are you sure you want to delete this slice?')) {
+const handleDeleteSlice = (sliceId) => {
+    const sliceToDelete = slices.find(s => s.id === sliceId)
+    const confirmMessage = `Are you sure you want to delete Slice ${sliceToDelete?.order}?\n\nThis action cannot be undone.`
+    
+    if (window.confirm(confirmMessage)) {
       const updatedSlices = slices.filter(slice => slice.id !== sliceId)
       onSlicesChange(updatedSlices)
+      
       if (selectedSlice?.id === sliceId) {
         setSelectedSlice(null)
         setTempSlice(null)
         setEditMode(false)
       }
+      
+      toast.success(`Slice ${sliceToDelete?.order} deleted successfully`)
     }
   }
 
