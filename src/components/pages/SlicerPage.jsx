@@ -397,7 +397,7 @@ const createSliceImage = async (slice, uploadedFile) => {
               transition={{ duration: 0.5, delay: 0.2 }}
             >
 <div className="flex space-x-6">
-                <div className={`transition-all duration-300 ${showSliceManager ? 'w-2/3' : 'w-full'}`}>
+                <div className="flex-1">
                   <ImageCanvas
                     uploadedFile={uploadedFile}
                     slices={slices}
@@ -405,22 +405,20 @@ const createSliceImage = async (slice, uploadedFile) => {
                     snapMode={snapMode}
                     activeSlice={activeSlice}
                     onActiveSliceChange={setActiveSlice}
-                    showSliceManager={showSliceManager}
+                    showSliceManager={true}
                   />
                 </div>
-                {showSliceManager && (
-                  <div className="w-1/3">
-                    <SliceManager
-                      slices={slices}
-                      onSlicesChange={setSlices}
-                      isOpen={showSliceManager}
-                      onClose={() => setShowSliceManager(false)}
-                      activeSlice={activeSlice}
-                      onSliceSelect={setActiveSlice}
-                      uploadedFile={uploadedFile}
-                    />
-                  </div>
-                )}
+                <div className="w-80 flex-shrink-0">
+                  <SliceManager
+                    slices={slices}
+                    onSlicesChange={setSlices}
+                    isOpen={true}
+                    onClose={() => {}}
+                    activeSlice={activeSlice}
+                    onSliceSelect={setActiveSlice}
+                    uploadedFile={uploadedFile}
+                  />
+                </div>
               </div>
             </motion.div>
             {/* Results */}
@@ -453,8 +451,8 @@ const createSliceImage = async (slice, uploadedFile) => {
           hasImage={!!uploadedFile}
           hasSlices={slices.length > 0}
           isProcessing={isProcessing}
-          showSliceManager={showSliceManager}
-          onToggleSliceManager={() => setShowSliceManager(!showSliceManager)}
+          showSliceManager={true}
+          onToggleSliceManager={() => {}}
         />
       )}
     </div>
