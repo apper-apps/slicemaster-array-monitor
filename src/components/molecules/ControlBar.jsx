@@ -57,7 +57,8 @@ const ControlBar = ({
             <ApperIcon name="Trash2" size={16} className="mr-2" />
             Clear All Slices
           </Button>
-<Button
+          {/*
+          <Button
             variant="outline"
             size="md"
             onClick={onToggleSliceManager}
@@ -66,7 +67,7 @@ const ControlBar = ({
             <ApperIcon name={showSliceManager ? "PanelRightClose" : "PanelRight"} size={16} className="mr-2" />
             {showSliceManager ? 'Hide' : 'Show'} Manager
           </Button>
-          
+          */}
           <Button
             variant="primary"
             size="md"
