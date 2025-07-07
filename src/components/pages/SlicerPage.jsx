@@ -271,7 +271,7 @@ const createSliceImage = async (slice, uploadedFile) => {
               </div>
               <div>
                 <h1 className="text-2xl font-bold text-gray-900">
-                  SliceMaster Pro
+                  Email Slicer by Awais
                 </h1>
                 <p className="text-sm text-gray-600">
                   Professional image slicing tool for email designers
