@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { toast } from "react-toastify";
 import { decompressFrames, parseGIF } from "gifuct-js";
-import GIF from "gif.js";
+import gifshot from "gifshot";
 import ApperIcon from "@/components/ApperIcon";
 import SliceManager from "@/components/organisms/SliceManager";
 import SliceResults from "@/components/organisms/SliceResults";
@@ -221,19 +221,7 @@ return await createAnimatedGifSlice(slice, uploadedFile, gifFrames)
         fullCanvas.width = uploadedFile.width
         fullCanvas.height = uploadedFile.height
         
-        // Create GIF encoder with progressive timeout strategy
-        gifEncoder = new GIF({
-          workers: Math.min(2, navigator.hardwareConcurrency || 1),
-          quality: Math.min(30, Math.max(10, Math.round(slice.width * slice.height / 10000))), // Dynamic quality based on size
-          width: slice.width,
-          height: slice.height,
-          repeat: 0,
-          transparent: null,
-          workerScript: '/gif.worker.js',
-          debug: false // Disable debug for performance
-        })
-        
-        // Set up progressive timeout (start with 15s, extend based on complexity)
+// Set up progressive timeout (start with 15s, extend based on complexity)
         const baseTimeout = 15000
         const complexityFactor = Math.min(3, processedFrames.length / 50)
         const finalTimeout = baseTimeout * (1 + complexityFactor)
@@ -249,13 +237,6 @@ return await createAnimatedGifSlice(slice, uploadedFile, gifFrames)
             clearTimeout(progressiveTimeout)
             progressiveTimeout = null
           }
-          if (gifEncoder) {
-            try {
-              gifEncoder.abort()
-            } catch (e) {
-              console.warn('GIF encoder cleanup warning:', e)
-            }
-          }
           abortController.abort()
           
           // Clean up canvas contexts
@@ -264,10 +245,10 @@ return await createAnimatedGifSlice(slice, uploadedFile, gifFrames)
           }
         }
         
-        let previousImageData = null
         let processedFrameCount = 0
+        const frameImages = []
         
-        // Process frames and add to GIF with memory optimization
+        // Process frames and create image data for gifshot
         for (let i = 0; i < processedFrames.length; i++) {
           if (abortController.signal.aborted) {
             cleanup()
@@ -293,10 +274,15 @@ return await createAnimatedGifSlice(slice, uploadedFile, gifFrames)
             
             // Get frame delay with bounds checking
             const delayMs = Math.max(50, Math.min(1000, frame.delay || 100))
-            const delayCentiseconds = Math.max(5, Math.round(delayMs / 10))
+            const delaySeconds = delayMs / 1000
             
-            // Add frame to GIF
-            gifEncoder.addFrame(sliceCtx, { delay: delayCentiseconds })
+            // Convert canvas to data URL for gifshot
+            const dataUrl = sliceCanvas.toDataURL('image/png')
+            frameImages.push({
+              src: dataUrl,
+              duration: delaySeconds
+            })
+            
             processedFrameCount++
             
             // Update progress with time estimation
@@ -304,8 +290,6 @@ return await createAnimatedGifSlice(slice, uploadedFile, gifFrames)
             const elapsed = Date.now() - processingStartTime
             const estimatedTotal = elapsed * (processedFrames.length / (i + 1))
             const remainingTime = Math.max(0, Math.round((estimatedTotal - elapsed) / 1000))
-// Note: processingToast would need to be passed as parameter or managed differently
-            // For now, we'll skip the toast update to avoid undefined reference
             
             // Clean up slice canvas
             sliceCtx.clearRect(0, 0, slice.width, slice.height)
@@ -323,59 +307,76 @@ return await createAnimatedGifSlice(slice, uploadedFile, gifFrames)
           return
         }
         
-        // Handle GIF completion
-        gifEncoder.on('finished', (blob) => {
-          cleanup()
-          
-          // Validate blob size
-          if (blob.size === 0) {
-            reject(new Error('Generated GIF is empty'))
-            return
+        // Create GIF using gifshot with better animation preservation
+        const gifOptions = {
+          images: frameImages,
+          gifWidth: slice.width,
+          gifHeight: slice.height,
+          numWorkers: Math.min(2, navigator.hardwareConcurrency || 1),
+          progressCallback: (captureProgress) => {
+            const totalProgress = 50 + Math.round(captureProgress * 50)
+            const elapsed = Date.now() - processingStartTime
+            const estimatedTotal = elapsed / ((50 + captureProgress * 50) / 100)
+            const remainingTime = Math.max(0, Math.round((estimatedTotal - elapsed) / 1000))
+            
+            // Note: processingToast would need to be passed as parameter or managed differently
+            // For now, we'll skip the toast update to avoid undefined reference
+          },
+          completeCallback: (obj) => {
+            cleanup()
+            
+            if (!obj.image) {
+              reject(new Error('GIF generation failed'))
+              return
+            }
+            
+            // Convert data URL to blob
+            fetch(obj.image)
+              .then(res => res.blob())
+              .then(blob => {
+                // Validate blob size
+                if (blob.size === 0) {
+                  reject(new Error('Generated GIF is empty'))
+                  return
+                }
+                
+                if (blob.size > 50 * 1024 * 1024) { // 50MB limit
+                  reject(new Error('Generated GIF is too large (>50MB)'))
+                  return
+                }
+                
+                const url = URL.createObjectURL(blob)
+                const processingTime = Date.now() - processingStartTime
+                console.log(`GIF processing completed in ${processingTime}ms, size: ${Math.round(blob.size/1024)}KB`)
+                
+                resolve({
+                  id: slice.id,
+                  name: `slice-${slice.order}.gif`,
+                  blob: blob,
+                  url: url,
+                  width: slice.width,
+                  height: slice.height,
+                  outputFormat: 'gif'
+                })
+              })
+              .catch(error => {
+                cleanup()
+                reject(new Error(`Failed to convert GIF to blob: ${error.message}`))
+              })
+          },
+          errorCallback: (error) => {
+            cleanup()
+            console.error('Gifshot error:', error)
+            reject(new Error(`GIF creation failed: ${error.message || 'Unknown error'}`))
           }
-          
-          if (blob.size > 50 * 1024 * 1024) { // 50MB limit
-            reject(new Error('Generated GIF is too large (>50MB)'))
-            return
-          }
-          
-          const url = URL.createObjectURL(blob)
-          const processingTime = Date.now() - processingStartTime
-console.log(`GIF processing completed in ${processingTime}ms, size: ${Math.round(blob.size/1024)}KB`)
-          resolve({
-            id: slice.id,
-            name: `slice-${slice.order}.gif`,
-            blob: blob,
-            url: url,
-            width: slice.width,
-            height: slice.height,
-            outputFormat: 'gif'
-          })
-        })
+        }
         
-        // Handle GIF progress with enhanced reporting
-gifEncoder.on('progress', (progress) => {
-          const totalProgress = 50 + Math.round(progress * 50)
-          const elapsed = Date.now() - processingStartTime
-          const estimatedTotal = elapsed / ((50 + progress * 50) / 100)
-          const remainingTime = Math.max(0, Math.round((estimatedTotal - elapsed) / 1000))
-          
-          // Note: processingToast would need to be passed as parameter or managed differently
-          // For now, we'll skip the toast update to avoid undefined reference
-        })
-        
-        // Handle GIF error with detailed logging
-        gifEncoder.on('error', (error) => {
-          cleanup()
-          console.error('GIF encoder error:', error)
-          reject(new Error(`GIF encoding failed: ${error.message || 'Unknown error'}`))
-        })
-        
-        // Start GIF rendering with error boundary
+        // Start GIF creation with error boundary
         try {
-          gifEncoder.render()
-        } catch (renderError) {
+          gifshot.createGIF(gifOptions)
+        } catch (error) {
           cleanup()
-          reject(new Error(`GIF render initiation failed: ${renderError.message}`))
+          reject(new Error(`GIF creation initiation failed: ${error.message}`))
         }
         
       } catch (error) {
