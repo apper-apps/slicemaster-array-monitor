@@ -20,13 +20,14 @@ const handleDownloadAll = async () => {
       
       // Add each slice to the zip
       for (const slice of slices) {
-        if (slice.isAnimated && slice.frames) {
-          // For animated GIFs, create a proper animated GIF (simplified implementation)
-          const response = await fetch(slice.url)
-          const blob = await response.blob()
-          zip.file(slice.name, blob)
+        if (slice.isAnimated && slice.blob) {
+          // For animated GIFs, use the blob directly
+          zip.file(slice.name, slice.blob)
+        } else if (slice.blob) {
+          // For static images, use the blob directly
+          zip.file(slice.name, slice.blob)
         } else {
-          // For static images
+          // Fallback to fetch from URL
           const response = await fetch(slice.url)
           const blob = await response.blob()
           zip.file(slice.name, blob)
@@ -45,7 +46,13 @@ const handleDownloadAll = async () => {
       document.body.removeChild(link)
       
       URL.revokeObjectURL(url)
-      toast.success('All slices downloaded successfully!')
+      
+      const animatedCount = slices.filter(s => s.isAnimated).length
+      const message = animatedCount > 0 
+        ? `All slices downloaded successfully! (${animatedCount} animated GIF${animatedCount > 1 ? 's' : ''} included)`
+        : 'All slices downloaded successfully!'
+      
+      toast.success(message)
     } catch (error) {
       console.error('Error downloading slices:', error)
       toast.error('Failed to download slices. Please try again.')

@@ -59,6 +59,9 @@ const SlicePreview = ({ slice, onDownload }) => {
             {slice.outputFormat && slice.outputFormat !== 'original' && (
               <span className="ml-1 text-primary">• {slice.outputFormat.toUpperCase()}</span>
             )}
+            {slice.isAnimated && slice.frames && (
+              <span className="ml-1 text-secondary">• {slice.frames} frames</span>
+            )}
           </p>
         </div>
       </Card>

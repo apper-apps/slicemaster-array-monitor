@@ -132,24 +132,37 @@ const createSliceImage = async (slice, uploadedFile) => {
     })
   }
 
-  const createAnimatedGifSlice = async (slice, uploadedFile, frames) => {
-    return new Promise((resolve) => {
+const createAnimatedGifSlice = async (slice, uploadedFile, frames) => {
+    return new Promise(async (resolve) => {
       try {
-        // Create canvas for each frame
-        const slicedFrames = []
+        // Dynamically import gif.js
+        const GIF = (await import('gif.js')).default
+        
+        // Create GIF encoder
+        const gif = new GIF({
+          workers: 2,
+          quality: 10,
+          width: slice.width,
+          height: slice.height,
+          workerScript: '/node_modules/gif.js/dist/gif.worker.js'
+        })
+        
+        // Create canvas for processing frames
         const canvas = document.createElement('canvas')
         const ctx = canvas.getContext('2d')
-        
         canvas.width = slice.width
         canvas.height = slice.height
         
         // Process each frame
         let processedFrames = 0
+        const totalFrames = frames.length
         
-        frames.forEach((frame, index) => {
+        for (let i = 0; i < totalFrames; i++) {
+          const frame = frames[i]
+          
+          // Create full frame canvas
           const frameCanvas = document.createElement('canvas')
           const frameCtx = frameCanvas.getContext('2d')
-          
           frameCanvas.width = uploadedFile.width
           frameCanvas.height = uploadedFile.height
           
@@ -166,32 +179,36 @@ const createSliceImage = async (slice, uploadedFile) => {
             0, 0, slice.width, slice.height
           )
           
-          // Convert slice to blob
-          canvas.toBlob((blob) => {
-            slicedFrames[index] = {
-              blob: blob,
-              delay: frame.delay || 100
-            }
-            
-            processedFrames++
-            
-            if (processedFrames === frames.length) {
-              // Create final animated GIF blob (simplified - in production use proper GIF encoder)
-              const url = URL.createObjectURL(slicedFrames[0].blob)
-              resolve({
-                id: slice.id,
-                name: `slice-${slice.order}.gif`,
-                blob: slicedFrames[0].blob, // Simplified - use first frame
-                url: url,
-                width: slice.width,
-                height: slice.height,
-                outputFormat: 'gif',
-                isAnimated: true,
-                frames: slicedFrames
-              })
-            }
-          }, 'image/gif')
+          // Add frame to GIF with proper timing
+          gif.addFrame(canvas, {
+            delay: frame.delay || 100,
+            copy: true
+          })
+          
+          processedFrames++
+        }
+        
+        // Render GIF
+        gif.on('finished', (blob) => {
+          const url = URL.createObjectURL(blob)
+          resolve({
+            id: slice.id,
+            name: `slice-${slice.order}.gif`,
+            blob: blob,
+            url: url,
+            width: slice.width,
+            height: slice.height,
+            outputFormat: 'gif',
+            isAnimated: true,
+            frames: frames.length
+          })
         })
+        
+        gif.on('progress', (progress) => {
+          console.log(`Processing animated GIF slice ${slice.order}: ${Math.round(progress * 100)}%`)
+        })
+        
+        gif.render()
         
       } catch (error) {
         console.error('Error creating animated GIF slice:', error)
