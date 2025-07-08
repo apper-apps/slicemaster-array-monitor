@@ -2,8 +2,8 @@ import React, { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { toast } from "react-toastify";
 import { decompressFrames, parseGIF } from "gifuct-js";
-import SliceManager from "@/components/organisms/SliceManager";
 import ApperIcon from "@/components/ApperIcon";
+import SliceManager from "@/components/organisms/SliceManager";
 import SliceResults from "@/components/organisms/SliceResults";
 import ImageCanvas from "@/components/organisms/ImageCanvas";
 import Button from "@/components/atoms/Button";
@@ -22,7 +22,7 @@ const SlicerPage = () => {
   const [showResults, setShowResults] = useState(false)
   const [showSliceManager, setShowSliceManager] = useState(false)
   const [activeSlice, setActiveSlice] = useState(null)
-  const [gifFrames, setGifFrames] = useState(null)
+const [gifFrames, setGifFrames] = useState(null)
 const handleFileSelect = async (file) => {
     setUploadedFile(file)
     setSlices([])
@@ -82,11 +82,11 @@ const createSliceImage = async (slice, uploadedFile) => {
     })
   }
 
-  const createStaticSlice = async (slice, uploadedFile, outputFormat) => {
+const createStaticSlice = async (slice, uploadedFile, outputFormat) => {
     return new Promise((resolve) => {
+      // Create canvas for static image slicing
       const canvas = document.createElement('canvas')
-      const ctx = canvas.getContext('2d')
-      
+      const ctx = canvas.getContext('2d', { willReadFrequently: true })
       canvas.width = slice.width
       canvas.height = slice.height
       
@@ -126,7 +126,7 @@ const createSliceImage = async (slice, uploadedFile) => {
             outputFormat: outputFormat
           })
         }, mimeType, 0.95)
-      }
+}
       
       img.src = uploadedFile.url
     })
@@ -138,21 +138,20 @@ const createAnimatedGifSlice = async (slice, uploadedFile, frames) => {
         // Dynamically import gif.js
         const GIF = (await import('gif.js')).default
         
-        // Create GIF encoder
+// Create GIF with specified quality and worker settings
         const gif = new GIF({
           workers: 2,
           quality: 10,
           width: slice.width,
           height: slice.height,
-          workerScript: '/node_modules/gif.js/dist/gif.worker.js'
+          workerScript: '/gif.worker.js'
         })
         
-        // Create canvas for processing frames
+        // Create canvas for frame processing
         const canvas = document.createElement('canvas')
-        const ctx = canvas.getContext('2d')
+        const ctx = canvas.getContext('2d', { willReadFrequently: true })
         canvas.width = slice.width
         canvas.height = slice.height
-        
         // Process each frame
         let processedFrames = 0
         const totalFrames = frames.length
